@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "Rural Logistics",
+    "slug": "rural-logistics",
+    "scheme": "rural-logistics",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "plugins": ["expo-router"],
+    "extra": {
+      "apiBaseUrl": "${EXPO_PUBLIC_API_BASE_URL}"
+    }
+  }
+}

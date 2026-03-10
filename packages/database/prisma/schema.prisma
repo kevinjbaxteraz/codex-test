@@ -1,0 +1,486 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ApplicationType {
+  VENDOR
+  DRIVER
+  HUB_HOST
+}
+
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  IN_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum PlatformRole {
+  CONSUMER
+  VENDOR_OWNER
+  VENDOR_STAFF
+  DRIVER
+  HUB_HOST_OWNER
+  HUB_HOST_STAFF
+  ADMIN
+  OPS
+  SUPPORT
+}
+
+enum HubClass {
+  A
+  B
+  C
+  D
+}
+
+enum VehicleClass {
+  PICKUP_NO_TRAILER
+  PICKUP_BUMPER_PULL
+  PICKUP_GOOSENECK
+  MEDIUM_DUTY_TRUCK
+  STRAIGHT_TRUCK
+  SEMI
+}
+
+enum FulfillmentMode {
+  PICKUP
+  DIRECT_DELIVERY
+  RELAY_ELIGIBLE
+}
+
+enum OrderMode {
+  IMMEDIATE
+  SCHEDULED
+  QUOTE
+}
+
+enum OrderStatus {
+  DRAFT
+  PENDING_QUOTE
+  QUOTED
+  PENDING_PAYMENT
+  CONFIRMED
+  PREPARING
+  READY_FOR_PICKUP
+  IN_TRANSIT
+  AT_HUB
+  DELIVERED
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum DeliveryJobStatus {
+  OPEN
+  ASSIGNED
+  PICKED_UP
+  AT_HUB
+  HANDED_OFF
+  COMPLETED
+  FAILED
+}
+
+enum ProductClass {
+  HAY
+  GRAIN
+  FEED
+  EGGS
+  SMALL_LIVESTOCK
+  LARGE_LIVESTOCK
+  FENCING
+  PALLETS
+  RURAL_SUPPLIES
+}
+
+enum PayoutStatus {
+  PLANNED
+  HELD
+  ELIGIBLE
+  SCHEDULED
+  PROCESSING
+  PAID
+  FAILED
+  REVERSED
+}
+
+enum PayoutPartyType {
+  VENDOR
+  DRIVER
+  HUB_HOST
+}
+
+enum PayoutMilestoneType {
+  ORDER_PICKED_UP
+  ORDER_DELIVERED
+  HUB_HANDOFF_CONFIRMED
+}
+
+enum ConversationType {
+  VENDOR_CUSTOMER
+  CUSTOMER_DRIVER
+  DRIVER_HUB_HOST
+}
+
+model User {
+  id              String           @id @default(cuid())
+  email           String           @unique
+  phone           String?
+  fullName        String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  roleMemberships RoleMembership[]
+  applications    Application[]
+  orders          ConsumerOrder[]
+  ratings         Rating[]         @relation("RatingAuthor")
+  sessions        AuthSession[]
+  driverProfile   DriverProfile?
+
+  conversationParticipants ConversationParticipant[]
+  sentMessages              Message[]               @relation("SentMessages")
+  trainingCompletions       TrainingCompletion[]
+}
+
+model AuthSession {
+  id            String   @id @default(cuid())
+  userId         String
+  refreshToken   String   @unique
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+
+  user           User     @relation(fields: [userId], references: [id])
+}
+
+model RoleMembership {
+  id        String       @id @default(cuid())
+  userId    String
+  role      PlatformRole
+  vendorId  String?
+  hubId     String?
+  createdAt DateTime     @default(now())
+
+  user      User         @relation(fields: [userId], references: [id])
+  vendor    Vendor?      @relation(fields: [vendorId], references: [id])
+  hub       Hub?         @relation(fields: [hubId], references: [id])
+
+  @@index([userId, role])
+}
+
+model Vendor {
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  serviceArea String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  storefront  Storefront?
+  products    Product[]
+  memberships RoleMembership[]
+  payouts     Payout[]
+}
+
+model Storefront {
+  id            String   @id @default(cuid())
+  vendorId       String   @unique
+  brandingUrl    String?
+  isActive       Boolean  @default(true)
+  pickupEnabled  Boolean  @default(true)
+  directEnabled  Boolean  @default(true)
+  relayEnabled   Boolean  @default(false)
+
+  vendor         Vendor   @relation(fields: [vendorId], references: [id])
+}
+
+model Product {
+  id               String            @id @default(cuid())
+  vendorId          String
+  name              String
+  category          String
+  productClass      ProductClass
+  unit              String
+  priceCents        Int
+  active            Boolean           @default(true)
+  fulfillmentModes  FulfillmentMode[]
+
+  vendor            Vendor            @relation(fields: [vendorId], references: [id])
+  items             OrderItem[]
+  inventory         Inventory?
+  handlingRule      HandlingRule?
+}
+
+model HandlingRule {
+  id                  String        @id @default(cuid())
+  productId           String        @unique
+  requiresCovered     Boolean       @default(false)
+  requiresTrailer     Boolean       @default(false)
+  animalWelfareRequired Boolean     @default(false)
+  maxHoldMinutes      Int?
+  temperatureMinC     Float?
+  temperatureMaxC     Float?
+  minimumVehicleClass VehicleClass?
+
+  product             Product       @relation(fields: [productId], references: [id])
+}
+
+model Inventory {
+  id               String   @id @default(cuid())
+  productId         String   @unique
+  quantityOnHand    Decimal  @db.Decimal(10, 2)
+  availabilityNote  String?
+  updatedAt         DateTime @updatedAt
+
+  product           Product  @relation(fields: [productId], references: [id])
+}
+
+model ConsumerOrder {
+  id               String       @id @default(cuid())
+  consumerId       String
+  status           OrderStatus  @default(DRAFT)
+  mode             OrderMode
+  scheduledFor     DateTime?
+  quoteAmountCents Int?
+  subtotalCents    Int
+  deliveryFeeCents Int
+  platformFeeCents Int
+  totalCents       Int
+  createdAt        DateTime     @default(now())
+
+  consumer         User         @relation(fields: [consumerId], references: [id])
+  items            OrderItem[]
+  fulfillmentPlan  FulfillmentPlan?
+  payouts          Payout[]
+}
+
+model OrderItem {
+  id          String         @id @default(cuid())
+  orderId      String
+  productId    String
+  quantity     Decimal        @db.Decimal(10, 2)
+  unitPrice    Int
+
+  order        ConsumerOrder  @relation(fields: [orderId], references: [id])
+  product      Product        @relation(fields: [productId], references: [id])
+}
+
+model FulfillmentPlan {
+  id               String            @id @default(cuid())
+  orderId           String            @unique
+  mode              FulfillmentMode
+  relayHubId        String?
+
+  order             ConsumerOrder     @relation(fields: [orderId], references: [id])
+  relayHub          Hub?              @relation(fields: [relayHubId], references: [id])
+  jobs              DeliveryJob[]
+}
+
+model Hub {
+  id             String          @id @default(cuid())
+  name           String
+  hubClass       HubClass
+  address        String
+  isActive       Boolean         @default(false)
+  createdAt      DateTime        @default(now())
+
+  capabilities   HubCapability[]
+  memberships    RoleMembership[]
+  relayPlans     FulfillmentPlan[]
+  payouts        Payout[]
+}
+
+model HubCapability {
+  id            String   @id @default(cuid())
+  hubId          String
+  code           String
+  enabled        Boolean  @default(true)
+
+  hub            Hub      @relation(fields: [hubId], references: [id])
+
+  @@unique([hubId, code])
+}
+
+model DriverProfile {
+  id               String              @id @default(cuid())
+  userId            String              @unique
+  approved          Boolean             @default(false)
+  vehicleClass      VehicleClass
+  vehicleCapacity   String?
+  isContractor      Boolean             @default(true)
+
+  user              User                @relation(fields: [userId], references: [id])
+  jobs              DeliveryJob[]
+  payouts           Payout[]
+}
+
+model DeliveryJob {
+  id                String             @id @default(cuid())
+  fulfillmentPlanId String
+  driverProfileId   String?
+  status            DeliveryJobStatus  @default(OPEN)
+  legIndex          Int
+  originLabel       String
+  destinationLabel  String
+
+  fulfillmentPlan   FulfillmentPlan    @relation(fields: [fulfillmentPlanId], references: [id])
+  driverProfile     DriverProfile?     @relation(fields: [driverProfileId], references: [id])
+
+  @@index([status])
+}
+
+model Application {
+  id               String             @id @default(cuid())
+  userId            String
+  type              ApplicationType
+  status            ApplicationStatus @default(DRAFT)
+  notes             String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  user              User              @relation(fields: [userId], references: [id])
+  documents         VerificationDocument[]
+}
+
+model VerificationDocument {
+  id              String       @id @default(cuid())
+  applicationId   String
+  fileUrl         String
+  documentType    String
+  uploadedAt      DateTime     @default(now())
+
+  application     Application  @relation(fields: [applicationId], references: [id])
+}
+
+model TrainingModule {
+  id              String       @id @default(cuid())
+  role            PlatformRole
+  title           String
+  videoUrl        String
+  required        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+
+  assignments     TrainingAssignment[]
+}
+
+model TrainingAssignment {
+  id               String          @id @default(cuid())
+  moduleId         String
+  role             PlatformRole
+
+  module           TrainingModule  @relation(fields: [moduleId], references: [id])
+
+  @@unique([moduleId, role])
+}
+
+model TrainingCompletion {
+  id               String       @id @default(cuid())
+  userId           String
+  moduleId         String
+  completedAt      DateTime     @default(now())
+
+  user             User         @relation(fields: [userId], references: [id])
+  module           TrainingModule @relation(fields: [moduleId], references: [id])
+
+  @@unique([userId, moduleId])
+}
+
+model Conversation {
+  id               String                     @id @default(cuid())
+  type             ConversationType
+  createdAt        DateTime                   @default(now())
+
+  participants     ConversationParticipant[]
+  messages         Message[]
+  maskedSessions   MaskedSession[]
+}
+
+model ConversationParticipant {
+  id               String         @id @default(cuid())
+  conversationId   String
+  userId           String
+  roleAtJoin       PlatformRole
+
+  conversation     Conversation   @relation(fields: [conversationId], references: [id])
+  user             User           @relation(fields: [userId], references: [id])
+
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id               String         @id @default(cuid())
+  conversationId   String
+  senderUserId     String
+  body             String
+  createdAt        DateTime       @default(now())
+
+  conversation     Conversation   @relation(fields: [conversationId], references: [id])
+  sender           User           @relation("SentMessages", fields: [senderUserId], references: [id])
+}
+
+model MaskedSession {
+  id               String         @id @default(cuid())
+  conversationId   String
+  providerRef      String
+  expiresAt        DateTime
+  createdAt        DateTime       @default(now())
+
+  conversation     Conversation   @relation(fields: [conversationId], references: [id])
+}
+
+model Payout {
+  id                String          @id @default(cuid())
+  orderId            String
+  status             PayoutStatus    @default(PLANNED)
+  partyType          PayoutPartyType
+  vendorId           String?
+  driverProfileId    String?
+  hubId              String?
+  amountCents        Int
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  order              ConsumerOrder   @relation(fields: [orderId], references: [id])
+  vendor             Vendor?         @relation(fields: [vendorId], references: [id])
+  driverProfile      DriverProfile?  @relation(fields: [driverProfileId], references: [id])
+  hub                Hub?            @relation(fields: [hubId], references: [id])
+  milestones         PayoutMilestone[]
+}
+
+model PayoutMilestone {
+  id                String              @id @default(cuid())
+  payoutId           String
+  type               PayoutMilestoneType
+  reachedAt          DateTime?
+
+  payout             Payout              @relation(fields: [payoutId], references: [id])
+
+  @@unique([payoutId, type])
+}
+
+model Rating {
+  id             String       @id @default(cuid())
+  authorUserId   String
+  targetType     String
+  targetId       String
+  stars          Int
+  comment        String?
+  createdAt      DateTime     @default(now())
+
+  author         User         @relation("RatingAuthor", fields: [authorUserId], references: [id])
+}
+
+model AuditLog {
+  id             String      @id @default(cuid())
+  actorUserId    String?
+  entityType     String
+  entityId       String
+  action         String
+  payload        Json?
+  createdAt      DateTime    @default(now())
+}
